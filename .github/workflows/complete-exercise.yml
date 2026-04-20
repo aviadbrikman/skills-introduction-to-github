@@ -3,7 +3,7 @@ name: Complete Exercise
 on:
   push:
     branches:
-      - copilot/exercise-related-tasks
+      - main
 
 permissions:
   contents: write
