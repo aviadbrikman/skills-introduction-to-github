@@ -10,6 +10,10 @@ permissions:
   pull-requests: write
   actions: read
 
+env:
+  MAX_POLLING_ATTEMPTS: 30
+  POLL_INTERVAL_SECONDS: 15
+
 jobs:
   complete_exercise:
     name: Complete Exercise Steps 2, 3, 4
@@ -52,14 +56,18 @@ jobs:
         if: steps.check.outputs.complete == 'false'
         run: |
           echo "Waiting for Step 3 workflow to be enabled..."
-          for i in $(seq 1 30); do
+          for i in $(seq 1 ${{ env.MAX_POLLING_ATTEMPTS }}); do
             STATE=$(gh api "repos/${{ github.repository }}/actions/workflows/3-open-a-pull-request.yml" --jq '.state' 2>/dev/null || echo "unknown")
-            echo "Attempt $i: Step 3 state = $STATE"
+            echo "Attempt $i/${{ env.MAX_POLLING_ATTEMPTS }}: Step 3 state = $STATE"
             if [ "$STATE" = "active" ]; then
               echo "Step 3 is now active!"
               break
             fi
-            sleep 15
+            if [ "$i" -eq "${{ env.MAX_POLLING_ATTEMPTS }}" ]; then
+              echo "ERROR: Timed out waiting for Step 3 to become active after ${{ env.MAX_POLLING_ATTEMPTS }} attempts"
+              exit 1
+            fi
+            sleep ${{ env.POLL_INTERVAL_SECONDS }}
           done
 
       - name: Step 3 - Create Pull Request
@@ -86,14 +94,18 @@ jobs:
         if: steps.check.outputs.complete == 'false'
         run: |
           echo "Waiting for Step 4 workflow to be enabled..."
-          for i in $(seq 1 30); do
+          for i in $(seq 1 ${{ env.MAX_POLLING_ATTEMPTS }}); do
             STATE=$(gh api "repos/${{ github.repository }}/actions/workflows/4-merge-your-pull-request.yml" --jq '.state' 2>/dev/null || echo "unknown")
-            echo "Attempt $i: Step 4 state = $STATE"
+            echo "Attempt $i/${{ env.MAX_POLLING_ATTEMPTS }}: Step 4 state = $STATE"
             if [ "$STATE" = "active" ]; then
               echo "Step 4 is now active!"
               break
             fi
-            sleep 15
+            if [ "$i" -eq "${{ env.MAX_POLLING_ATTEMPTS }}" ]; then
+              echo "ERROR: Timed out waiting for Step 4 to become active after ${{ env.MAX_POLLING_ATTEMPTS }} attempts"
+              exit 1
+            fi
+            sleep ${{ env.POLL_INTERVAL_SECONDS }}
           done
 
       - name: Step 4 - Merge Pull Request
