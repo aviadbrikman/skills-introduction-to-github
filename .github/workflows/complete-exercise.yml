@@ -1,0 +1,115 @@
+name: Complete Exercise
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+env:
+  MAX_POLLING_ATTEMPTS: 30
+  POLL_INTERVAL_SECONDS: 15
+
+jobs:
+  complete_exercise:
+    name: Complete Exercise Steps 2, 3, 4
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Check if exercise already complete
+        id: check
+        run: |
+          COUNT=$(gh pr list --head my-first-branch --state merged --repo ${{ github.repository }} --json state --jq 'length')
+          if [ "$COUNT" -gt "0" ]; then
+            echo "complete=true" >> $GITHUB_OUTPUT
+          else
+            echo "complete=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout my-first-branch
+        if: steps.check.outputs.complete == 'false'
+        uses: actions/checkout@v4
+        with:
+          ref: my-first-branch
+
+      - name: Step 2 - Add PROFILE.md to my-first-branch
+        if: steps.check.outputs.complete == 'false'
+        run: |
+          if [ -f PROFILE.md ]; then
+            echo "PROFILE.md already exists, skipping"
+          else
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config user.name "github-actions[bot]"
+            echo "Welcome to my GitHub profile!" > PROFILE.md
+            git add PROFILE.md
+            git commit -m "Add PROFILE.md"
+            git push origin my-first-branch
+          fi
+
+      - name: Wait for Step 3 workflow to be enabled
+        if: steps.check.outputs.complete == 'false'
+        run: |
+          echo "Waiting for Step 3 workflow to be enabled..."
+          for i in $(seq 1 ${{ env.MAX_POLLING_ATTEMPTS }}); do
+            STATE=$(gh api "repos/${{ github.repository }}/actions/workflows/3-open-a-pull-request.yml" --jq '.state' 2>/dev/null || echo "unknown")
+            echo "Attempt $i/${{ env.MAX_POLLING_ATTEMPTS }}: Step 3 state = $STATE"
+            if [ "$STATE" = "active" ]; then
+              echo "Step 3 is now active!"
+              break
+            fi
+            if [ "$i" -eq "${{ env.MAX_POLLING_ATTEMPTS }}" ]; then
+              echo "ERROR: Timed out waiting for Step 3 to become active after ${{ env.MAX_POLLING_ATTEMPTS }} attempts"
+              exit 1
+            fi
+            sleep ${{ env.POLL_INTERVAL_SECONDS }}
+          done
+
+      - name: Step 3 - Create Pull Request
+        if: steps.check.outputs.complete == 'false'
+        id: create-pr
+        run: |
+          EXISTING=$(gh pr list --head my-first-branch --base main --repo ${{ github.repository }} --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "PR already exists: #$EXISTING"
+            echo "pr_number=$EXISTING" >> $GITHUB_OUTPUT
+          else
+            PR_URL=$(gh pr create \
+              --title "Add my first file" \
+              --body "This pull request adds my profile README file to showcase on my GitHub profile." \
+              --base main \
+              --head my-first-branch \
+              --repo ${{ github.repository }})
+            echo "Created PR: $PR_URL"
+            NUMBER=$(echo "$PR_URL" | grep -oP '(?<=pull/)\d+')
+            echo "pr_number=$NUMBER" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wait for Step 4 workflow to be enabled
+        if: steps.check.outputs.complete == 'false'
+        run: |
+          echo "Waiting for Step 4 workflow to be enabled..."
+          for i in $(seq 1 ${{ env.MAX_POLLING_ATTEMPTS }}); do
+            STATE=$(gh api "repos/${{ github.repository }}/actions/workflows/4-merge-your-pull-request.yml" --jq '.state' 2>/dev/null || echo "unknown")
+            echo "Attempt $i/${{ env.MAX_POLLING_ATTEMPTS }}: Step 4 state = $STATE"
+            if [ "$STATE" = "active" ]; then
+              echo "Step 4 is now active!"
+              break
+            fi
+            if [ "$i" -eq "${{ env.MAX_POLLING_ATTEMPTS }}" ]; then
+              echo "ERROR: Timed out waiting for Step 4 to become active after ${{ env.MAX_POLLING_ATTEMPTS }} attempts"
+              exit 1
+            fi
+            sleep ${{ env.POLL_INTERVAL_SECONDS }}
+          done
+
+      - name: Step 4 - Merge Pull Request
+        if: steps.check.outputs.complete == 'false'
+        run: |
+          gh pr merge my-first-branch --merge --repo ${{ github.repository }}
+          echo "Exercise complete!"
